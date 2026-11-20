@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Self-Driving Car DQN Simulator</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: #0f1117;
+            color: #e6edf3;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        header {
+            text-align: center;
+            margin-bottom: 16px;
+        }
+        header h1 {
+            margin: 0 0 6px 0;
+            font-size: 1.6rem;
+            color: #ffffff;
+        }
+        header p {
+            margin: 0;
+            color: #8b949e;
+            font-size: 0.95rem;
+        }
+        .layout {
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+            justify-content: center;
+            max-width: 1200px;
+            width: 100%;
+        }
+        .canvas-wrapper {
+            position: relative;
+            border: 2px solid #30363d;
+            border-radius: 10px;
+            overflow: hidden;
+            background: #161b22;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+        }
+        canvas {
+            display: block;
+            cursor: crosshair;
+        }
+        .sidebar {
+            width: 320px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+        .card {
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 10px;
+            padding: 16px;
+        }
+        .card h3 {
+            margin: 0 0 12px 0;
+            font-size: 1rem;
+            color: #58a6ff;
+            border-bottom: 1px solid #21262d;
+            padding-bottom: 8px;
+        }
+        .btn-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+        }
+        button {
+            background: #238636;
+            color: #ffffff;
+            border: none;
+            padding: 10px 12px;
+            border-radius: 6px;
+            font-weight: 600;
+            font-size: 0.9rem;
+            cursor: pointer;
+            transition: background 0.15s;
+        }
+        button:hover { background: #2ea043; }
+        button.secondary { background: #30363d; }
+        button.secondary:hover { background: #484f58; }
+        button.danger { background: #da3633; }
+        button.danger:hover { background: #f85149; }
+        .slider-row {
+            margin-top: 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            font-size: 0.85rem;
+            color: #8b949e;
+        }
+        .metrics {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+            font-size: 0.9rem;
+        }
+        .metric-box {
+            background: #0d1117;
+            padding: 10px;
+            border-radius: 6px;
+            border: 1px solid #21262d;
+        }
+        .metric-label {
+            font-size: 0.75rem;
+            color: #8b949e;
+            display: block;
+            margin-bottom: 4px;
+        }
+        .chart-box {
+            height: 170px;
+            margin-top: 12px;
+        }
+        #toast {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: #1f6feb;
+            color: white;
+            padding: 10px 16px;
+            border-radius: 6px;
+            font-size: 0.9rem;
+            opacity: 0;
+            transition: opacity 0.3s;
+            pointer-events: none;
+        }
+        .legend {
+            display: flex;
+            gap: 12px;
+            font-size: 0.8rem;
+            color: #8b949e;
+            margin-top: 10px;
+            flex-wrap: wrap;
+        }
+        .dot {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-right: 4px;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Autonomous Car — Deep Q-Learning Web Simulator</h1>
+        <p>Click and drag on the track to draw sand obstacles. Watch the PyTorch DQN agent learn to navigate.</p>
+    </header>
+
+    <div class="layout">
+        <div class="canvas-wrapper">
+            <!-- Dual-layer canvas: bottom for static sand strokes, top for moving car/sensors -->
+            <canvas id="sandCanvas" width="800" height="600"></canvas>
+            <canvas id="carCanvas" width="800" height="600" style="position:absolute; top:0; left:0;"></canvas>
+        </div>
+
+        <div class="sidebar">
+            <div class="card">
+                <h3>Simulation Controls</h3>
+                <div class="btn-grid">
+                    <button id="pauseBtn" class="secondary">Pause</button>
+                    <button id="resetBtn" class="secondary">Reset Car</button>
+                    <button id="saveBtn">Save Brain</button>
+                    <button id="loadBtn" class="secondary">Load Brain</button>
+                </div>
+                <button id="clearBtn" class="danger" style="width:100%; margin-top:8px;">Clear Sand</button>
+
+                <div class="slider-row">
+                    <label for="speedSlider">Training Speed: <strong id="speedMultiplier">1x</strong></label>
+                    <input type="range" id="speedSlider" min="1" max="8" value="1">
+                </div>
+
+                <div class="legend">
+                    <span><span class="dot" style="background:#ff4d4d;"></span>Front Sensor</span>
+                    <span><span class="dot" style="background:#00e5ff;"></span>Left Sensor</span>
+                    <span><span class="dot" style="background:#ffe600;"></span>Right Sensor</span>
+                    <span><span class="dot" style="background:#2ea043;"></span>Goal</span>
+                </div>
+            </div>
+
+            <div class="card">
+                <h3>Live Telemetry</h3>
+                <div class="metrics">
+                    <div class="metric-box">
+                        <span class="metric-label">Status</span>
+                        <strong id="connStatus" style="color:#f0883e;">Connecting...</strong>
+                    </div>
+                    <div class="metric-box">
+                        <span class="metric-label">Mean Score</span>
+                        <strong id="scoreVal">0.000</strong>
+                    </div>
+                </div>
+                <div class="chart-box">
+                    <canvas id="rewardChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="toast"></div>
+
+    <script>
+        const sandCanvas = document.getElementById("sandCanvas");
+        const sandCtx = sandCanvas.getContext("2d");
+        const carCanvas = document.getElementById("carCanvas");
+        const carCtx = carCanvas.getContext("2d");
+
+        // Note: Kivy uses bottom-left (0,0), HTML5 Canvas uses top-left (0,0).
+        // We flip Y when rendering/sending coordinates so physics matches Kivy behavior cleanly.
+        const HEIGHT = 600;
+
+        // Chart setup
+        const chartCtx = document.getElementById("rewardChart").getContext("2d");
+        const rewardChart = new Chart(chartCtx, {
+            type: "line",
+            data: {
+                labels: [],
+                datasets: [{
+                    data: [],
+                    borderColor: "#58a6ff",
+                    borderWidth: 2,
+                    pointRadius: 0,
+                    tension: 0.2
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                animation: false,
+                plugins: { legend: { display: false } },
+                scales: {
+                    x: { display: false },
+                    y: { grid: { color: "#21262d" }, ticks: { color: "#8b949e" } }
+                }
+            }
+        });
+
+        function showToast(msg) {
+            const toast = document.getElementById("toast");
+            toast.innerText = msg;
+            toast.style.opacity = "1";
+            setTimeout(() => { toast.style.opacity = "0"; }, 2500);
+        }
+
+        // WebSocket setup
+        const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+        const ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
+
+        ws.onopen = () => {
+            const el = document.getElementById("connStatus");
+            el.innerText = "Connected";
+            el.style.color = "#3fb950";
+        };
+
+        ws.onclose = () => {
+            const el = document.getElementById("connStatus");
+            el.innerText = "Disconnected";
+            el.style.color = "#f85149";
+        };
+
+        let frameCounter = 0;
+        ws.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+
+            if (data.type === "notification") {
+                showToast(data.message);
+                return;
+            }
+
+            if (data.type === "state") {
+                renderScene(data);
+                document.getElementById("scoreVal").innerText = data.score.toFixed(3);
+
+                if (frameCounter++ % 20 === 0) {
+                    rewardChart.data.labels.push("");
+                    rewardChart.data.datasets[0].data.push(data.score);
+                    if (rewardChart.data.labels.length > 60) {
+                        rewardChart.data.labels.shift();
+                        rewardChart.data.datasets[0].data.shift();
+                    }
+                    rewardChart.update();
+                }
+            }
+        };
+
+        function renderScene(state) {
+            carCtx.clearRect(0, 0, carCanvas.width, carCanvas.height);
+
+            // Draw Goal
+            const gx = state.goal.x;
+            const gy = HEIGHT - state.goal.y;
+            carCtx.fillStyle = "rgba(46, 160, 67, 0.25)";
+            carCtx.beginPath();
+            carCtx.arc(gx, gy, 24, 0, Math.PI * 2);
+            carCtx.fill();
+
+            carCtx.fillStyle = "#3fb950";
+            carCtx.beginPath();
+            carCtx.arc(gx, gy, 10, 0, Math.PI * 2);
+            carCtx.fill();
+
+            // Draw Sensors
+            const sensorColors = ["#ff4d4d", "#00e5ff", "#ffe600"];
+            state.sensors.forEach((s, idx) => {
+                carCtx.fillStyle = sensorColors[idx];
+                carCtx.beginPath();
+                carCtx.arc(s.x, HEIGHT - s.y, 5, 0, Math.PI * 2);
+                carCtx.fill();
+            });
+
+            // Draw Car
+            const cx = state.car.x;
+            const cy = HEIGHT - state.car.y;
+            carCtx.save();
+            carCtx.translate(cx, cy);
+            carCtx.rotate((-state.car.angle * Math.PI) / 180);
+            carCtx.fillStyle = "#ffffff";
+            carCtx.fillRect(-10, -5, 20, 10);
+            // Headlight indicator
+            carCtx.fillStyle = "#58a6ff";
+            carCtx.fillRect(6, -4, 4, 8);
+            carCtx.restore();
+        }
+
+        // Mouse Sand Drawing
+        let drawing = false;
+        let pendingPoints = [];
+
+        function recordSand(e) {
+            const rect = carCanvas.getBoundingClientRect();
+            const canvasX = e.clientX - rect.left;
+            const canvasY = e.clientY - rect.top;
+
+            // Paint locally on sandCanvas for instant visual feedback
+            sandCtx.fillStyle = "#d29922";
+            sandCtx.beginPath();
+            sandCtx.arc(canvasX, canvasY, 10, 0, Math.PI * 2);
+            sandCtx.fill();
+
+            // Queue point with flipped Y for Python simulation coordinates
+            pendingPoints.push({ x: canvasX, y: HEIGHT - canvasY });
+        }
+
+        carCanvas.addEventListener("mousedown", (e) => {
+            drawing = true;
+            recordSand(e);
+        });
+        carCanvas.addEventListener("mousemove", (e) => {
+            if (drawing) recordSand(e);
+        });
+        window.addEventListener("mouseup", () => {
+            drawing = false;
+        });
+
+        // Flush sand points to backend at 30Hz
+        setInterval(() => {
+            if (pendingPoints.length > 0 && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: "draw_sand", points: pendingPoints }));
+                pendingPoints = [];
+            }
+        }, 33);
+
+        // Button Controls
+        document.getElementById("clearBtn").onclick = () => {
+            sandCtx.clearRect(0, 0, sandCanvas.width, sandCanvas.height);
+            ws.send(JSON.stringify({ type: "clear" }));
+        };
+
+        document.getElementById("resetBtn").onclick = () => {
+            ws.send(JSON.stringify({ type: "reset_car" }));
+        };
+
+        document.getElementById("saveBtn").onclick = () => {
+            ws.send(JSON.stringify({ type: "save" }));
+        };
+
+        document.getElementById("loadBtn").onclick = () => {
+            ws.send(JSON.stringify({ type: "load" }));
+        };
+
+        let isPaused = false;
+        document.getElementById("pauseBtn").onclick = (e) => {
+            isPaused = !isPaused;
+            e.target.innerText = isPaused ? "Resume" : "Pause";
+            ws.send(JSON.stringify({ type: "toggle_pause" }));
+        };
+
+        document.getElementById("speedSlider").oninput = (e) => {
+            const val = e.target.value;
+            document.getElementById("speedMultiplier").innerText = `${val}x`;
+            ws.send(JSON.stringify({ type: "set_speed", value: parseInt(val) }));
+        };
+    </script>
+</body>
+</html>
